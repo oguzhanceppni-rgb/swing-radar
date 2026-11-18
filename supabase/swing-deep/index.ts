@@ -6,6 +6,11 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+// Only pg_net calls from the owner's DB carry this key (Vault 'fn_key', read via service role).
+let fnKey: string | null = null;
+const authorized = async (req: Request) =>
+  (fnKey ??= (await sb.rpc("fn_key")).data ?? null) !== null && req.headers.get("x-fn-key") === fnKey;
 const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36" };
 const INFL: Record<string, number> = { bist: 0.30, us: 0.03 }; // nominal büyümenin "gerçek" sayılması için eşik (TÜFE yıllık ≈ %29,8)
 
@@ -408,6 +413,7 @@ async function stockNews(s: any, longName: string | null) {
 }
 
 Deno.serve(async (req: Request) => {
+  if (!(await authorized(req))) return new Response("forbidden", { status: 403 });
   let scanId = 0;
   const body = await req.json().catch(() => ({}));
   // ---- tek hisse modu: swing_stock_start(ticker) → { ticker } → swing_stock satırı (derin analiz + haberler)

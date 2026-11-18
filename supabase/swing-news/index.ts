@@ -4,6 +4,11 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+// Only pg_net calls from the owner's DB carry this key (Vault 'fn_key', read via service role).
+let fnKey: string | null = null;
+const authorized = async (req: Request) =>
+  (fnKey ??= (await sb.rpc("fn_key")).data ?? null) !== null && req.headers.get("x-fn-key") === fnKey;
 const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36", "accept-language": "tr-TR,tr;q=0.9,en;q=0.8" };
 type Item = { t: string; u: string; src: string; at: string | null; d?: string; score?: number; tag?: string };
 
@@ -130,7 +135,8 @@ async function sectorNews(pool: Item[]) {
   return out;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
+  if (!(await authorized(req))) return new Response("forbidden", { status: 403 });
   const errs: string[] = [];
   const safe = async <T,>(name: string, p: Promise<T>, fb: T) => { try { return await p; } catch (e) { errs.push(`${name}: ${(e as Error).message}`); return fb; } };
   try {

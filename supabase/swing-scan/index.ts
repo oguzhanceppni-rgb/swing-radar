@@ -4,6 +4,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { FALLBACK } from "./universe.ts";
 
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+// Only pg_net calls from the owner's DB carry this key (Vault 'fn_key', read via service role).
+let fnKey: string | null = null;
+const authorized = async (req: Request) =>
+  (fnKey ??= (await sb.rpc("fn_key")).data ?? null) !== null && req.headers.get("x-fn-key") === fnKey;
 const UA = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" };
 
 // çıkış: ilk stop 2×ATR; haftalık kapanış haftalık HAHO (VWMA20) altındaysa çık; en çok 90 gün (bt_signals.py testi)
@@ -675,6 +680,7 @@ async function advise(pos: any[], ord: any[], D: Map<string, D | null>, mc: Reco
 }
 
 Deno.serve(async req => {
+  if (!(await authorized(req))) return new Response("forbidden", { status: 403 });
   let id = 0, mkt = "";
   try {
     const body = await req.json();
